@@ -108,7 +108,10 @@ jobs:
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
         run: |
+          if not exist C:\fbuild\libgit2\lib mkdir C:\fbuild\libgit2\lib
+          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\lib\ || exit /b 1
           if not exist C:\fbuild\libgit2-1.7.1 mklink /J C:\fbuild\libgit2-1.7.1 C:\fbuild\libgit2
+          if exist C:\fbuild\ngspice-42\Spice64_dll\include if not exist C:\fbuild\ngspice-42\include mklink /J C:\fbuild\ngspice-42\include C:\fbuild\ngspice-42\Spice64_dll\include
           set "INCLUDE=C:\fbuild\zlib_install\include;%INCLUDE%"
           set "LIB=C:\fbuild\zlib_install\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
