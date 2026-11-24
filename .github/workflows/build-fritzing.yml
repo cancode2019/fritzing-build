@@ -112,6 +112,8 @@ jobs:
           copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\lib\ || exit /b 1
           if not exist C:\fbuild\libgit2-1.7.1 mklink /J C:\fbuild\libgit2-1.7.1 C:\fbuild\libgit2
           if exist C:\fbuild\ngspice-42\Spice64_dll\include if not exist C:\fbuild\ngspice-42\include mklink /J C:\fbuild\ngspice-42\include C:\fbuild\ngspice-42\Spice64_dll\include
+          if not exist C:\fbuild\quazip-6.5.3-1.4intuisphere mklink /J C:\fbuild\quazip-6.5.3-1.4intuisphere C:\fbuild\quazip_qt6.5.3
+          if not exist C:\fbuild\svgpp-1.3.1 mklink /J C:\fbuild\svgpp-1.3.1 C:\fbuild\svgpp
           set "INCLUDE=C:\fbuild\zlib_install\include;%INCLUDE%"
           set "LIB=C:\fbuild\zlib_install\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
