@@ -23,6 +23,7 @@ jobs:
       - name: 1b. jom Kurulumu
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           curl.exe -L -f -o C:\jom.zip "https://download.qt.io/official_releases/jom/jom.zip"
           Expand-Archive -Path C:\jom.zip -DestinationPath C:\jom -Force
           "C:\jom" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -63,6 +64,7 @@ jobs:
           7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
+          # ZLIB (vcpkg)
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib:x64-windows
           if ($LASTEXITCODE -ne 0) { throw "zlib installation failed" }
 
@@ -71,29 +73,42 @@ jobs:
         run: |
           REM --- libgit2 ---
           cd /d C:\fbuild\libgit2
-          cmake -B build64 -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
-          cmake --build build64
+          cmake -B build64 -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON || exit /b 1
+          cmake --build build64 || exit /b 1
           mkdir C:\fbuild\libgit2\build64\Release 2>nul
-          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\build64\Release\
+          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\build64\Release\ || exit /b 1
 
-          REM --- Clipper1 ---
+          REM --- Clipper1 (MSVC'de .lib üretmesi için statik derlenir) ---
           cd /d C:\fbuild\Clipper1\cpp
-          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2
-          cmake --build build
-          cmake --install build
+          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2 || exit /b 1
+          cmake --build build || exit /b 1
+          cmake --install build || exit /b 1
 
           REM --- QuaZip ---
           cd /d C:\fbuild\quazip
-          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DQUAZIP_QT_MAJOR_VERSION=6 -DQUAZIP_FETCH_LIBS=ON -DQUAZIP_ENABLE_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DZLIB_ROOT="%VCPKG_INSTALLATION_ROOT%\installed\x64-windows" -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_qt6_6.5.3
-          cmake --build build
-          cmake --install build
+          cmake -B build -G "NMake Makefiles" ^
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DQUAZIP_QT_MAJOR_VERSION=6 ^
+            -DQUAZIP_FETCH_LIBS=OFF ^
+            -DQUAZIP_ENABLE_TESTS=OFF ^
+            -DBUILD_SHARED_LIBS=ON ^
+            -DCMAKE_PREFIX_PATH="%Qt6_DIR%" ^
+            -DZLIB_INCLUDE_DIR="%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include" ^
+            -DZLIB_LIBRARY="%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib\zlib.lib" ^
+            -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_qt6.5.3 || exit /b 1
+          cmake --build build || exit /b 1
+          cmake --install build || exit /b 1
+          if not exist C:\fbuild\quazip_qt6_6.5.3 mklink /J C:\fbuild\quazip_qt6_6.5.3 C:\fbuild\quazip_qt6.5.3
 
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
         run: |
+          set "INCLUDE=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include;%INCLUDE%"
+          set "LIB=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
-          qmake phoenix.pro "CONFIG+=release"
-          jom -j4 release
+          qmake phoenix.pro "CONFIG+=release" || exit /b 1
+          jom -j%NUMBER_OF_PROCESSORS% release || exit /b 1
 
       - name: 6. Taşınabilir (Portable) Klasörü Hazırla
         shell: pwsh
@@ -102,16 +117,17 @@ jobs:
           $dist = "C:\fbuild\dist\Fritzing"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          # Ana EXE dosyasını bul ve kopyala
-          $exe = Get-ChildItem -Path C:\fbuild\fritzing-app -Filter "Fritzing.exe" -Recurse | Select-Object -First 1
+          # Ana EXE dosyasını bul (phoenix.pro genelde C:\fbuild\release64 altına yazar)
+          $exe = Get-ChildItem -Path C:\fbuild -Filter "Fritzing.exe" -Recurse |
+                 Where-Object { $_.FullName -notlike "$dist*" } |
+                 Select-Object -First 1
           if (-not $exe) { throw "Fritzing.exe bulunamadi!" }
-          Copy-Item $exe.FullName -Destination $dist
+          Write-Host "Bulunan EXE: $($exe.FullName)"
+          Copy-Item $exe.FullName -Destination $dist -Force
 
           # Alt kütüphane DLL'lerini topla
           Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Get-ChildItem -Path C:\fbuild\Clipper1 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Get-ChildItem -Path C:\fbuild\quazip -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Get-ChildItem -Path C:\fbuild\quazip_qt6_6.5.3 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\quazip_qt6.5.3 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
           Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist -Force
           Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\zlib1.dll" -Destination $dist -Force
 
@@ -122,13 +138,17 @@ jobs:
 
           # Qt bağımlılıklarını otomatik topla
           windeployqt --release --no-translations "$dist\Fritzing.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt basarisiz oldu!" }
 
-          # Parça veritabanını önceden oluştur (hata verirse kurulumda ilk açılışta zaten oluşur)
+          # Parça veritabanını önceden oluştur
           $env:QT_QPA_PLATFORM = "offscreen"
+          Push-Location $dist
           try {
-            & "$dist\Fritzing.exe" -db "$dist\fritzing-parts\parts.db"
+            & "$dist\Fritzing.exe" -db "$dist\fritzing-parts\parts.db" -pp "$dist\fritzing-parts" -f "$dist"
           } catch {
             Write-Warning "parts.db onceden olusturulamadi, Fritzing ilk acilista otomatik olusturacak."
+          } finally {
+            Pop-Location
           }
 
           # Portable ZIP oluştur
@@ -137,6 +157,7 @@ jobs:
       - name: 7. Inno Setup ile Tek Dosya Kurulum (.exe) Oluştur
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $iss = @"
           [Setup]
           AppName=Fritzing
@@ -158,6 +179,7 @@ jobs:
           "@
           Set-Content -Path "C:\fbuild\setup.iss" -Value $iss
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "C:\fbuild\setup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi basarisiz oldu!" }
 
       - name: 8. Çıktıları İndirilebilir Artifact Olarak Yükle
         uses: actions/upload-artifact@v4
