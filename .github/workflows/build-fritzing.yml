@@ -23,7 +23,7 @@ jobs:
       - name: 1b. jom Kurulumu
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://download.qt.io/official_releases/jom/jom.zip" -OutFile C:\jom.zip
+          curl.exe -L -f -o C:\jom.zip "https://download.qt.io/official_releases/jom/jom.zip"
           Expand-Archive -Path C:\jom.zip -DestinationPath C:\jom -Force
           "C:\jom" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -35,6 +35,7 @@ jobs:
       - name: 3. Kaynak Kodları ve Bağımlılıkları İndir
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path C:\fbuild | Out-Null
           Set-Location C:\fbuild
 
@@ -48,9 +49,7 @@ jobs:
           git clone --depth 1 --branch v1.4 https://github.com/stachenov/quazip.git
 
           # Clipper1 (SourceForge resmi paketi)
-          curl.exe --location --fail --retry 3 --retry-all-errors --output clipper.zip "https://downloads.sourceforge.net/project/polyclipping/clipper_ver6.4.2.zip"
-          if (-not (Test-Path clipper.zip)) { throw "Clipper1 archive was not downloaded" }
-          7z t clipper.zip
+          curl.exe -L -f -A "Wget/1.21" -o clipper.zip "https://sourceforge.net/projects/polyclipping/files/clipper_ver6.4.2.zip/download"
           7z x clipper.zip -oC:\fbuild\Clipper1 -y | Out-Null
           Remove-Item clipper.zip
 
@@ -60,27 +59,31 @@ jobs:
           Remove-Item boost.zip
 
           # ngspice (Windows 64-bit DLL paketi)
-          curl.exe --location --fail --retry 3 --retry-all-errors --output ngspice.7z "https://downloads.sourceforge.net/project/ngspice/ng-spice-rework/old-releases/42/ngspice-42_dll_64.7z"
-          if (-not (Test-Path ngspice.7z)) { throw "ngspice archive was not downloaded" }
-          7z t ngspice.7z
+          curl.exe -L -f -A "Wget/1.21" -o ngspice.7z "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download"
           7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
       - name: 4. Alt Kütüphaneleri Derle (libgit2, Clipper1, QuaZip)
         shell: cmd
         run: |
+          REM --- libgit2 ---
           cd /d C:\fbuild\libgit2
-          cmake -B build64 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
+          cmake -B build64 -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
           cmake --build build64
+          mkdir C:\fbuild\libgit2\build64\Release 2>nul
+          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\build64\Release\
 
+          REM --- Clipper1 ---
           cd /d C:\fbuild\Clipper1\cpp
-          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2
+          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2
           cmake --build build
           cmake --install build
 
+          REM --- QuaZip (zlib otomatik indirilir) ---
           cd /d C:\fbuild\quazip
-          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DQUAZIP_QT_MAJOR_VERSION=6 -DCMAKE_PREFIX_PATH="%Qt6_DIR%"
+          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DQUAZIP_QT_MAJOR_VERSION=6 -DQUAZIP_FETCH_LIBS=ON -DQUAZIP_ENABLE_TESTS=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_PREFIX_PATH="%Qt6_DIR%" -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_qt6_6.5.3
           cmake --build build
+          cmake --install build
 
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
@@ -92,31 +95,40 @@ jobs:
       - name: 6. Taşınabilir (Portable) Klasörü Hazırla
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $dist = "C:\fbuild\dist\Fritzing"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          # Ana EXE ve DLL'ler
-          Copy-Item "C:\fbuild\fritzing-app\release64\Fritzing.exe" -Destination $dist -ErrorAction SilentlyContinue
-          if (-not (Test-Path "$dist\Fritzing.exe")) {
-            Copy-Item "C:\fbuild\fritzing-app\release\Fritzing.exe" -Destination $dist
-          }
+          # Ana EXE dosyasını bul ve kopyala
+          $exe = Get-ChildItem -Path C:\fbuild\fritzing-app -Filter "Fritzing.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "Fritzing.exe bulunamadi!" }
+          Copy-Item $exe.FullName -Destination $dist
 
-          Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
-          Get-ChildItem -Path C:\fbuild\Clipper1 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
-          Get-ChildItem -Path C:\fbuild\quazip\build -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
-          Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist
+          # Alt kütüphane DLL'lerini topla
+          Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\Clipper1 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\quazip -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\quazip_qt6_6.5.3 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist -Force
 
-          # Parça kütüphanesi
-          Copy-Item "C:\fbuild\fritzing-parts" -Destination "$dist\fritzing-parts" -Recurse
+          # Parça kütüphanesi (.git klasörünü atlayarak boyutu küçült)
+          robocopy "C:\fbuild\fritzing-parts" "$dist\fritzing-parts" /E /XD .git | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "fritzing-parts kopyalanamadi!" }
+          $global:LASTEXITCODE = 0
 
           # Qt bağımlılıklarını otomatik topla
           windeployqt --release --no-translations "$dist\Fritzing.exe"
 
-          # Parça veritabanını önceden oluştur
-          & "$dist\Fritzing.exe" -db "$dist\fritzing-parts\parts.db"
+          # Parça veritabanını önceden oluştur (hata verirse kurulumda ilk açılışta zaten oluşur)
+          $env:QT_QPA_PLATFORM = "offscreen"
+          try {
+            & "$dist\Fritzing.exe" -db "$dist\fritzing-parts\parts.db"
+          } catch {
+            Write-Warning "parts.db onceden olusturulamadi, Fritzing ilk acilista otomatik olusturacak."
+          }
 
           # Portable ZIP oluştur
-          Compress-Archive -Path "$dist\*" -DestinationPath "C:\fbuild\Fritzing-Portable.zip"
+          Compress-Archive -Path "$dist\*" -DestinationPath "C:\fbuild\Fritzing-Portable.zip" -Force
 
       - name: 7. Inno Setup ile Tek Dosya Kurulum (.exe) Oluştur
         shell: pwsh
@@ -131,7 +143,7 @@ jobs:
           OutputBaseFilename=Fritzing-Setup
           Compression=lzma2
           SolidCompression=yes
-          ArchitecturesInstallIn64BitMode=x64
+          ArchitecturesInstallIn64BitMode=x64compatible
 
           [Files]
           Source: "C:\fbuild\dist\Fritzing\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
