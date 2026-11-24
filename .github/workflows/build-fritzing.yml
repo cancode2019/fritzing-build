@@ -59,7 +59,7 @@ jobs:
           Remove-Item boost.zip
 
           # ngspice (Windows 64-bit DLL paketi)
-          curl.exe -L -f -A "Wget/1.21" -o ngspice.7z "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download"
+          curl.exe -L -f -A "Wget/1.21" -o ngspice.7z "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/old-releases/42/ngspice-42_dll_64.7z/download"
           7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
