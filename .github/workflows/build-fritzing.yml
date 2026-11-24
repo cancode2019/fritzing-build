@@ -1,0 +1,137 @@
+name: Build Fritzing Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      fritzing_branch:
+        description: "Fritzing dalı veya sürüm etiketi (örn: develop, 1.0.4)"
+        required: true
+        default: "develop"
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: 1. Qt 6 ve jom Kurulumu
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.5.3"
+          arch: "win64_msvc2019_64"
+          modules: "qt5compat qtserialport"
+          tools: "tools_jom"
+
+      - name: 2. MSVC (Visual Studio 2022) Ortamını Yükle
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: 3. Kaynak Kodları ve Bağımlılıkları İndir
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\fbuild | Out-Null
+          Set-Location C:\fbuild
+
+          # Fritzing ana uygulama ve parça kütüphanesi
+          git clone --depth 1 --branch "${{ inputs.fritzing_branch }}" https://github.com/fritzing/fritzing-app.git
+          git clone --depth 1 https://github.com/fritzing/fritzing-parts.git
+
+          # Yardımcı kütüphaneler
+          git clone --depth 1 https://github.com/svgpp/svgpp.git
+          git clone --depth 1 --branch v1.7.2 https://github.com/libgit2/libgit2.git
+          git clone --depth 1 --branch v1.4 https://github.com/stachenov/quazip.git
+          git clone --depth 1 https://github.com/fritzing/Clipper1.git
+
+          # Boost (yalnızca header dosyaları yeterli)
+          Invoke-WebRequest -Uri "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.zip" -OutFile boost.zip
+          7z x boost.zip -oC:\fbuild | Out-Null
+          Remove-Item boost.zip
+
+          # ngspice (Windows 64-bit DLL paketi)
+          Invoke-WebRequest -Uri "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download" -OutFile ngspice.7z
+          7z x ngspice.7z -oC:\fbuild\ngspice-42 | Out-Null
+          Remove-Item ngspice.7z
+
+      - name: 4. Alt Kütüphaneleri Derle (libgit2, Clipper1, QuaZip)
+        shell: cmd
+        run: |
+          cd /d C:\fbuild\libgit2
+          cmake -B build64 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build build64
+
+          cd /d C:\fbuild\Clipper1
+          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+          cmake --build build
+
+          cd /d C:\fbuild\quazip
+          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DQUAZIP_QT_MAJOR_VERSION=6 -DCMAKE_PREFIX_PATH="%Qt6_DIR%"
+          cmake --build build
+
+      - name: 5. Fritzing Derlemesi (qmake + jom)
+        shell: cmd
+        run: |
+          cd /d C:\fbuild\fritzing-app
+          qmake phoenix.pro "CONFIG+=release"
+          jom -j4 release
+
+      - name: 6. Taşınabilir (Portable) Klasörü Hazırla
+        shell: pwsh
+        run: |
+          $dist = "C:\fbuild\dist\Fritzing"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          # Ana EXE ve DLL'ler
+          Copy-Item "C:\fbuild\fritzing-app\release64\Fritzing.exe" -Destination $dist -ErrorAction SilentlyContinue
+          if (-not (Test-Path "$dist\Fritzing.exe")) {
+            Copy-Item "C:\fbuild\fritzing-app\release\Fritzing.exe" -Destination $dist
+          }
+
+          Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
+          Get-ChildItem -Path C:\fbuild\Clipper1\build -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
+          Get-ChildItem -Path C:\fbuild\quazip\build -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
+          Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist
+
+          # Parça kütüphanesi
+          Copy-Item "C:\fbuild\fritzing-parts" -Destination "$dist\fritzing-parts" -Recurse
+
+          # Qt bağımlılıklarını otomatik topla
+          windeployqt --release --no-translations "$dist\Fritzing.exe"
+
+          # Parça veritabanını önceden oluştur
+          & "$dist\Fritzing.exe" -db "$dist\fritzing-parts\parts.db"
+
+          # Portable ZIP oluştur
+          Compress-Archive -Path "$dist\*" -DestinationPath "C:\fbuild\Fritzing-Portable.zip"
+
+      - name: 7. Inno Setup ile Tek Dosya Kurulum (.exe) Oluştur
+        shell: pwsh
+        run: |
+          $iss = @"
+          [Setup]
+          AppName=Fritzing
+          AppVersion=1.0
+          DefaultDirName={autopf}\Fritzing
+          DefaultGroupName=Fritzing
+          OutputDir=C:\fbuild
+          OutputBaseFilename=Fritzing-Setup
+          Compression=lzma2
+          SolidCompression=yes
+          ArchitecturesInstallIn64BitMode=x64
+
+          [Files]
+          Source: "C:\fbuild\dist\Fritzing\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Fritzing"; Filename: "{app}\Fritzing.exe"
+          Name: "{autodesktop}\Fritzing"; Filename: "{app}\Fritzing.exe"
+          "@
+          Set-Content -Path "C:\fbuild\setup.iss" -Value $iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "C:\fbuild\setup.iss"
+
+      - name: 8. Çıktıları İndirilebilir Artifact Olarak Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fritzing-Windows-x64
+          path: |
+            C:\fbuild\Fritzing-Setup.exe
+            C:\fbuild\Fritzing-Portable.zip
