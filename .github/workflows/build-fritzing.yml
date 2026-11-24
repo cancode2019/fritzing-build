@@ -47,6 +47,7 @@ jobs:
           # Yardımcı kütüphaneler
           git clone --depth 1 https://github.com/svgpp/svgpp.git
           git clone --depth 1 --branch v1.7.2 https://github.com/libgit2/libgit2.git
+          git clone --depth 1 --branch v1.3.1 https://github.com/madler/zlib.git
           git clone --depth 1 --branch v1.4 https://github.com/stachenov/quazip.git
 
           # Clipper1 (SourceForge resmi paketi)
@@ -64,11 +65,7 @@ jobs:
           7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
-          # ZLIB (vcpkg)
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib:x64-windows
-          if ($LASTEXITCODE -ne 0) { throw "zlib installation failed" }
-
-      - name: 4. Alt Kütüphaneleri Derle (libgit2, Clipper1, QuaZip)
+      - name: 4. Alt Kütüphaneleri Derle (libgit2, Clipper1, zlib, QuaZip)
         shell: cmd
         run: |
           REM --- libgit2 ---
@@ -84,6 +81,12 @@ jobs:
           cmake --build build || exit /b 1
           cmake --install build || exit /b 1
 
+          REM --- zlib ---
+          cd /d C:\fbuild\zlib
+          cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=C:\fbuild\zlib_install || exit /b 1
+          cmake --build build || exit /b 1
+          cmake --install build || exit /b 1
+
           REM --- QuaZip ---
           cd /d C:\fbuild\quazip
           cmake -B build -G "NMake Makefiles" ^
@@ -93,9 +96,10 @@ jobs:
             -DQUAZIP_FETCH_LIBS=OFF ^
             -DQUAZIP_ENABLE_TESTS=OFF ^
             -DBUILD_SHARED_LIBS=ON ^
-            -DCMAKE_PREFIX_PATH="%Qt6_DIR%" ^
-            -DZLIB_INCLUDE_DIR="%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include" ^
-            -DZLIB_LIBRARY="%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib\zlib.lib" ^
+            -DCMAKE_PREFIX_PATH="%Qt6_DIR%;C:\fbuild\zlib_install" ^
+            -DZLIB_ROOT=C:\fbuild\zlib_install ^
+            -DZLIB_INCLUDE_DIR=C:\fbuild\zlib_install\include ^
+            -DZLIB_LIBRARY=C:\fbuild\zlib_install\lib\zlib.lib ^
             -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_qt6.5.3 || exit /b 1
           cmake --build build || exit /b 1
           cmake --install build || exit /b 1
@@ -104,8 +108,8 @@ jobs:
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
         run: |
-          set "INCLUDE=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\include;%INCLUDE%"
-          set "LIB=%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\lib;%LIB%"
+          set "INCLUDE=C:\fbuild\zlib_install\include;%INCLUDE%"
+          set "LIB=C:\fbuild\zlib_install\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
           qmake phoenix.pro "CONFIG+=release" || exit /b 1
           jom -j%NUMBER_OF_PROCESSORS% release || exit /b 1
@@ -117,7 +121,7 @@ jobs:
           $dist = "C:\fbuild\dist\Fritzing"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          # Ana EXE dosyasını bul (phoenix.pro genelde C:\fbuild\release64 altına yazar)
+          # Ana EXE dosyasını bul
           $exe = Get-ChildItem -Path C:\fbuild -Filter "Fritzing.exe" -Recurse |
                  Where-Object { $_.FullName -notlike "$dist*" } |
                  Select-Object -First 1
@@ -128,8 +132,8 @@ jobs:
           # Alt kütüphane DLL'lerini topla
           Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
           Get-ChildItem -Path C:\fbuild\quazip_qt6.5.3 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\zlib_install\bin -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
           Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\zlib1.dll" -Destination $dist -Force
 
           # Parça kütüphanesi (.git klasörünü atlayarak boyutu küçült)
           robocopy "C:\fbuild\fritzing-parts" "$dist\fritzing-parts" /E /XD .git | Out-Null
