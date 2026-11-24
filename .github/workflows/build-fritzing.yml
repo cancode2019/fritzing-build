@@ -19,6 +19,7 @@ jobs:
           version: "6.5.3"
           arch: "win64_msvc2019_64"
           modules: "qt5compat qtserialport"
+          tools: ""
 
       - name: 1b. jom Kurulumu
         shell: pwsh
