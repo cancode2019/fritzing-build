@@ -114,8 +114,8 @@ jobs:
           if exist C:\fbuild\ngspice-42\Spice64_dll\include if not exist C:\fbuild\ngspice-42\include mklink /J C:\fbuild\ngspice-42\include C:\fbuild\ngspice-42\Spice64_dll\include
           if not exist C:\fbuild\quazip-6.5.3-1.4intuisphere mklink /J C:\fbuild\quazip-6.5.3-1.4intuisphere C:\fbuild\quazip_qt6.5.3
           if not exist C:\fbuild\svgpp-1.3.1 mklink /J C:\fbuild\svgpp-1.3.1 C:\fbuild\svgpp
-          set "INCLUDE=C:\fbuild\zlib_install\include;%INCLUDE%"
-          set "LIB=C:\fbuild\zlib_install\lib;%LIB%"
+          set "INCLUDE=C:\fbuild\zlib_install\include;C:\fbuild\Clipper1\6.4.2\include\polyclipping;%INCLUDE%"
+          set "LIB=C:\fbuild\zlib_install\lib;C:\fbuild\Clipper1\6.4.2\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
           qmake phoenix.pro "CONFIG+=release" || exit /b 1
           jom -j%NUMBER_OF_PROCESSORS% release || exit /b 1
