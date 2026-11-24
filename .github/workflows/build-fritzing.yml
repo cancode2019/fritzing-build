@@ -13,13 +13,19 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: 1. Qt 6 ve jom Kurulumu
+      - name: 1. Qt 6 Kurulumu
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.5.3"
           arch: "win64_msvc2019_64"
           modules: "qt5compat qtserialport"
-          tools: "tools_jom"
+
+      - name: 1b. jom Kurulumu
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://download.qt.io/official_releases/jom/jom.zip" -OutFile C:\jom.zip
+          Expand-Archive -Path C:\jom.zip -DestinationPath C:\jom -Force
+          "C:\jom" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: 2. MSVC (Visual Studio 2022) Ortamını Yükle
         uses: ilammy/msvc-dev-cmd@v1
