@@ -19,7 +19,6 @@ jobs:
           version: "6.5.3"
           arch: "win64_msvc2019_64"
           modules: "qt5compat qtserialport"
-          tools: ""
 
       - name: 1b. jom Kurulumu
         shell: pwsh
@@ -47,16 +46,20 @@ jobs:
           git clone --depth 1 https://github.com/svgpp/svgpp.git
           git clone --depth 1 --branch v1.7.2 https://github.com/libgit2/libgit2.git
           git clone --depth 1 --branch v1.4 https://github.com/stachenov/quazip.git
-          git clone --depth 1 https://github.com/fritzing/Clipper1.git
+
+          # Clipper1 (SourceForge resmi paketi)
+          curl.exe -L -f -o clipper.zip "https://sourceforge.net/projects/polyclipping/files/clipper_ver6.4.2.zip/download"
+          7z x clipper.zip -oC:\fbuild\Clipper1 -y | Out-Null
+          Remove-Item clipper.zip
 
           # Boost (yalnızca header dosyaları yeterli)
-          Invoke-WebRequest -Uri "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.zip" -OutFile boost.zip
-          7z x boost.zip -oC:\fbuild | Out-Null
+          curl.exe -L -f -o boost.zip "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.zip"
+          7z x boost.zip -oC:\fbuild -y | Out-Null
           Remove-Item boost.zip
 
           # ngspice (Windows 64-bit DLL paketi)
-          Invoke-WebRequest -Uri "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download" -OutFile ngspice.7z
-          7z x ngspice.7z -oC:\fbuild\ngspice-42 | Out-Null
+          curl.exe -L -f -o ngspice.7z "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download"
+          7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
       - name: 4. Alt Kütüphaneleri Derle (libgit2, Clipper1, QuaZip)
@@ -66,9 +69,10 @@ jobs:
           cmake -B build64 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
           cmake --build build64
 
-          cd /d C:\fbuild\Clipper1
-          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+          cd /d C:\fbuild\Clipper1\cpp
+          cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2
           cmake --build build
+          cmake --install build
 
           cd /d C:\fbuild\quazip
           cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DQUAZIP_QT_MAJOR_VERSION=6 -DCMAKE_PREFIX_PATH="%Qt6_DIR%"
@@ -94,7 +98,7 @@ jobs:
           }
 
           Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
-          Get-ChildItem -Path C:\fbuild\Clipper1\build -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
+          Get-ChildItem -Path C:\fbuild\Clipper1 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
           Get-ChildItem -Path C:\fbuild\quazip\build -Filter "*.dll" -Recurse | Copy-Item -Destination $dist
           Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist
 
