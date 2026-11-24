@@ -108,6 +108,7 @@ jobs:
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
         run: |
+          if not exist C:\fbuild\libgit2-1.7.1 mklink /J C:\fbuild\libgit2-1.7.1 C:\fbuild\libgit2
           set "INCLUDE=C:\fbuild\zlib_install\include;%INCLUDE%"
           set "LIB=C:\fbuild\zlib_install\lib;%LIB%"
           cd /d C:\fbuild\fritzing-app
