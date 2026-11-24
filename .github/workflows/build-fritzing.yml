@@ -8,16 +8,19 @@ on:
         required: true
         default: "develop"
 
+env:
+  QT_VER: "6.8.3"
+
 jobs:
   build-windows:
     runs-on: windows-2022
 
     steps:
-      - name: 1. Qt 6 Kurulumu
+      - name: 1. Qt 6.8 Kurulumu
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.5.3"
-          arch: "win64_msvc2019_64"
+          version: ${{ env.QT_VER }}
+          arch: "win64_msvc2022_64"
           modules: "qt5compat qtserialport"
 
       - name: 1b. jom Kurulumu
@@ -72,14 +75,16 @@ jobs:
           cd /d C:\fbuild\libgit2
           cmake -B build64 -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON || exit /b 1
           cmake --build build64 || exit /b 1
-          mkdir C:\fbuild\libgit2\build64\Release 2>nul
-          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\build64\Release\ || exit /b 1
+          mkdir C:\fbuild\libgit2\lib 2>nul
+          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\lib\ || exit /b 1
 
-          REM --- Clipper1 (MSVC'de .lib üretmesi için statik derlenir) ---
+          REM --- Clipper1 (statik .lib üretimi ve garanti kopyalama) ---
           cd /d C:\fbuild\Clipper1\cpp
           cmake -B build -G "NMake Makefiles" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=C:\fbuild\Clipper1\6.4.2 || exit /b 1
           cmake --build build || exit /b 1
           cmake --install build || exit /b 1
+          if not exist C:\fbuild\Clipper1\6.4.2\lib mkdir C:\fbuild\Clipper1\6.4.2\lib
+          if exist C:\fbuild\Clipper1\cpp\build\polyclipping.lib copy /Y C:\fbuild\Clipper1\cpp\build\polyclipping.lib C:\fbuild\Clipper1\6.4.2\lib\
 
           REM --- zlib ---
           cd /d C:\fbuild\zlib
@@ -100,19 +105,16 @@ jobs:
             -DZLIB_ROOT=C:\fbuild\zlib_install ^
             -DZLIB_INCLUDE_DIR=C:\fbuild\zlib_install\include ^
             -DZLIB_LIBRARY=C:\fbuild\zlib_install\lib\zlib.lib ^
-            -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_qt6.5.3 || exit /b 1
+            -DCMAKE_INSTALL_PREFIX=C:\fbuild\quazip_install || exit /b 1
           cmake --build build || exit /b 1
           cmake --install build || exit /b 1
-          if not exist C:\fbuild\quazip_qt6_6.5.3 mklink /J C:\fbuild\quazip_qt6_6.5.3 C:\fbuild\quazip_qt6.5.3
 
       - name: 5. Fritzing Derlemesi (qmake + jom)
         shell: cmd
         run: |
-          if not exist C:\fbuild\libgit2\lib mkdir C:\fbuild\libgit2\lib
-          copy /Y C:\fbuild\libgit2\build64\git2.* C:\fbuild\libgit2\lib\ || exit /b 1
           if not exist C:\fbuild\libgit2-1.7.1 mklink /J C:\fbuild\libgit2-1.7.1 C:\fbuild\libgit2
           if exist C:\fbuild\ngspice-42\Spice64_dll\include if not exist C:\fbuild\ngspice-42\include mklink /J C:\fbuild\ngspice-42\include C:\fbuild\ngspice-42\Spice64_dll\include
-          if not exist C:\fbuild\quazip-6.5.3-1.4intuisphere mklink /J C:\fbuild\quazip-6.5.3-1.4intuisphere C:\fbuild\quazip_qt6.5.3
+          if not exist C:\fbuild\quazip-%QT_VER%-1.4intuisphere mklink /J C:\fbuild\quazip-%QT_VER%-1.4intuisphere C:\fbuild\quazip_install
           if not exist C:\fbuild\svgpp-1.3.1 mklink /J C:\fbuild\svgpp-1.3.1 C:\fbuild\svgpp
           set "INCLUDE=C:\fbuild\zlib_install\include;C:\fbuild\Clipper1\6.4.2\include\polyclipping;%INCLUDE%"
           set "LIB=C:\fbuild\zlib_install\lib;C:\fbuild\Clipper1\6.4.2\lib;%LIB%"
@@ -137,9 +139,17 @@ jobs:
 
           # Alt kütüphane DLL'lerini topla
           Get-ChildItem -Path C:\fbuild\libgit2\build64 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Get-ChildItem -Path C:\fbuild\quazip_qt6.5.3 -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
+          Get-ChildItem -Path C:\fbuild\quazip_install -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
           Get-ChildItem -Path C:\fbuild\zlib_install\bin -Filter "*.dll" -Recurse | Copy-Item -Destination $dist -Force
-          Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Copy-Item -Destination $dist -Force
+
+          # ngspice MSVC sürümünü öncelikli kopyala
+          $ngDll = Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse |
+                   Where-Object { $_.FullName -like "*dll-vs*" } |
+                   Select-Object -First 1
+          if (-not $ngDll) {
+            $ngDll = Get-ChildItem -Path C:\fbuild\ngspice-42 -Filter "ngspice.dll" -Recurse | Select-Object -First 1
+          }
+          if ($ngDll) { Copy-Item $ngDll.FullName -Destination $dist -Force }
 
           # Parça kütüphanesi (.git klasörünü atlayarak boyutu küçült)
           robocopy "C:\fbuild\fritzing-parts" "$dist\fritzing-parts" /E /XD .git | Out-Null
@@ -158,6 +168,7 @@ jobs:
           } catch {
             Write-Warning "parts.db onceden olusturulamadi, Fritzing ilk acilista otomatik olusturacak."
           } finally {
+            $global:LASTEXITCODE = 0
             Pop-Location
           }
 
