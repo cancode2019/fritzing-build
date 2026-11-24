@@ -48,7 +48,9 @@ jobs:
           git clone --depth 1 --branch v1.4 https://github.com/stachenov/quazip.git
 
           # Clipper1 (SourceForge resmi paketi)
-          curl.exe -L -f -o clipper.zip "https://sourceforge.net/projects/polyclipping/files/clipper_ver6.4.2.zip/download"
+          curl.exe --location --fail --retry 3 --retry-all-errors --output clipper.zip "https://downloads.sourceforge.net/project/polyclipping/clipper_ver6.4.2.zip"
+          if (-not (Test-Path clipper.zip)) { throw "Clipper1 archive was not downloaded" }
+          7z t clipper.zip
           7z x clipper.zip -oC:\fbuild\Clipper1 -y | Out-Null
           Remove-Item clipper.zip
 
@@ -58,7 +60,9 @@ jobs:
           Remove-Item boost.zip
 
           # ngspice (Windows 64-bit DLL paketi)
-          curl.exe -L -f -o ngspice.7z "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/42/ngspice-42_dll_64.7z/download"
+          curl.exe --location --fail --retry 3 --retry-all-errors --output ngspice.7z "https://downloads.sourceforge.net/project/ngspice/ng-spice-rework/old-releases/42/ngspice-42_dll_64.7z"
+          if (-not (Test-Path ngspice.7z)) { throw "ngspice archive was not downloaded" }
+          7z t ngspice.7z
           7z x ngspice.7z -oC:\fbuild\ngspice-42 -y | Out-Null
           Remove-Item ngspice.7z
 
